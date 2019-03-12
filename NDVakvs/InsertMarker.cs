@@ -21,6 +21,7 @@ namespace NDVakvs
         public void insertMarker()
         {
             List<string[]> lParentFilters = new List<string[]>();
+            List<MarkerFunction> lMarkerFunctions = new List<MarkerFunction>();
 
             lParentFilters.Add(Directory.GetFiles(fbd.SelectedPath, "*.cpp", SearchOption.AllDirectories));
             lParentFilters.Add(Directory.GetFiles(fbd.SelectedPath, "*.cc", SearchOption.AllDirectories));
@@ -31,8 +32,10 @@ namespace NDVakvs
 
             try
             {
-                string paternOpen = "{";
-                string paternClose = "}";
+                string paternBracesOpen = "{";
+                string paternBracesClose = "}";
+                string parenthesesOpen = @"\(";
+                string parenthesesClose = @"\)";
                 string paternReturn = "return";
                 string paternIf = "if";
                 string parentElse = "else";
@@ -42,7 +45,7 @@ namespace NDVakvs
                 string parentComment = @"//";
                 string parentCommentOpen = @"/\*";
                 string parentCommentClose = @"\*/";
-                string parentHeshTag = @"#";
+                string parentHashTag = @"#";
                 string parentStruct = "struct";
                 string parentClass = "class";
                 string parentNamespace = "namespace";
@@ -50,6 +53,7 @@ namespace NDVakvs
                 bool flagEndReturn = false;
                 bool commentOpen = false;
                 bool startAnalis = false;
+                bool flagCheckFunction = true;
                 
                 Regex regex;
                 Match match;
@@ -60,7 +64,7 @@ namespace NDVakvs
                     int indexFile = 0;
                     foreach (var pathFile in filter)
                     {
-                        bool includeHeder = false;
+                        bool includeHeader = false;
                         int indexFunc = 0;
                         var allLines = File.ReadAllLines(pathFile).ToList();
 
@@ -68,6 +72,7 @@ namespace NDVakvs
                         {
                             regex = new Regex(parentCommentOpen);
                             match = regex.Match(allLines[i]);
+                            int indexCommentOpen = match.Index;
                             if(match.Success)
                             {
                                 for(int j = i; j < allLines.Count; j++)
@@ -76,8 +81,15 @@ namespace NDVakvs
                                     match = regex.Match(allLines[j]);
                                     if (match.Success)
                                     {
-                                        i = j + 1;
-                                        break;
+                                        int indexCommentClose = match.Index;
+                                        if (i != j)
+                                        {
+                                            i = j + 1;
+                                            break;
+                                        }
+                                        else if (indexCommentOpen != indexCommentClose)
+                                            continue;
+                                        else break;
                                     }
                                     else continue;
                                 }
@@ -88,7 +100,7 @@ namespace NDVakvs
                             {
                                 continue;
                             }
-                            regex = new Regex(parentHeshTag);
+                            regex = new Regex(parentHashTag);
                             match = regex.Match(allLines[i]);
                             if (match.Success)
                             {
@@ -100,7 +112,7 @@ namespace NDVakvs
                             {
                                 for(int j = i; j < allLines.Count; j++)
                                 {
-                                    regex = new Regex(paternOpen);
+                                    regex = new Regex(paternBracesOpen);
                                     match = regex.Match(allLines[j]);
                                     if (match.Success)
                                     {
@@ -116,7 +128,7 @@ namespace NDVakvs
                             {
                                 for (int j = i; j < allLines.Count; j++)
                                 {
-                                    regex = new Regex(paternOpen);
+                                    regex = new Regex(paternBracesOpen);
                                     match = regex.Match(allLines[j]);
                                     if (match.Success)
                                     {
@@ -132,7 +144,7 @@ namespace NDVakvs
                             {
                                 for (int j = i; j < allLines.Count; j++)
                                 {
-                                    regex = new Regex(paternOpen);
+                                    regex = new Regex(paternBracesOpen);
                                     match = regex.Match(allLines[j]);
                                     if (match.Success)
                                     {
@@ -144,13 +156,73 @@ namespace NDVakvs
                             }
                             if (allLines[i] != "")
                             {
-                                regex = new Regex(paternOpen);
+                                if(flagCheckFunction)
+                                {
+                                    if (allLines[i].Contains(";"))
+                                        continue;
+                                    regex = new Regex(parenthesesOpen);
+                                    match = regex.Match(allLines[i]);
+                                    if (match.Success)
+                                    {
+                                        int numberString = i;
+                                        string str = "";
+                                        for (int j = i; j < allLines.Count; j++)
+                                        {
+                                            regex = new Regex(parenthesesClose);
+                                            match = regex.Match(allLines[j]);
+                                            if (match.Success)
+                                            {
+                                                for (int r = j; r < allLines.Count; r++)
+                                                {
+                                                    regex = new Regex(paternBracesOpen);
+                                                    match = regex.Match(allLines[r]);
+                                                    if (!match.Success)
+                                                        str += allLines[r].Replace(" ", string.Empty);
+                                                    else
+                                                    {
+                                                        j = r - 1;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                for (int r = j; r < allLines.Count; r++)
+                                                {
+                                                    regex = new Regex(paternBracesOpen);
+                                                    match = regex.Match(allLines[r]);
+                                                    if (!match.Success)
+                                                        str += allLines[r].Replace(" ", string.Empty);
+                                                    else
+                                                    {
+                                                        j = r - 1;
+                                                        break;
+                                                    }
+                                                }
+                                                
+                                            }
+                                            i = j;
+                                            break;
+                                        }
+                                        lMarkerFunctions.Add(new MarkerFunction
+                                        {
+                                            NumberFile = indexFile,
+                                            NumberFunction = indexFunc,
+                                            NameFunction = str,
+                                            NumberString = numberString,
+                                            NameFile = pathFile
+                                        });
+                                    }
+                                }
+                                
+                                regex = new Regex(paternBracesOpen);
                                 match = regex.Match(allLines[i]);
                                 if (match.Success)
                                 {
                                     if (n == 0)
                                     {
-                                        includeHeder = true;
+                                        includeHeader = true;
+                                        flagCheckFunction = false;
                                         allLines.Insert(i + 1, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','i')",indexFile,indexFunc));
                                         ++n;
                                     }
@@ -373,7 +445,7 @@ namespace NDVakvs
                                     }
                                 }
 
-                                regex = new Regex(paternClose);
+                                regex = new Regex(paternBracesClose);
                                 match = regex.Match(allLines[i]);
                                 if (match.Success)
                                 {
@@ -381,9 +453,11 @@ namespace NDVakvs
                                     if (flagEndReturn)
                                     {
                                         flagEndReturn = false;
+                                        flagCheckFunction = true;
                                     }
                                     else if (n == 0)
                                     {
+                                        flagCheckFunction = true;
                                         allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
                                         ++indexFunc;
                                         ++i;
@@ -391,7 +465,7 @@ namespace NDVakvs
                                 }
                             }
                         }
-                        if (includeHeder)
+                        if (includeHeader)
                             allLines.Insert(0, "#include \"akvs_probe.h\"");
                         File.WriteAllLines(pathFile, allLines.ToArray());
                         ++indexFile;
