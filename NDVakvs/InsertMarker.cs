@@ -46,9 +46,9 @@ namespace NDVakvs
                 string parentCommentOpen = @"/\*";
                 string parentCommentClose = @"\*/";
                 string parentHashTag = @"#";
-                string parentStruct = "struct";
-                string parentClass = "class";
-                string parentNamespace = "namespace";
+                string parentStruct = "^struct";
+                string parentClass = "^class";
+                string parentNamespace = "^namespace";
                 bool flag = false;
                 bool flagEndReturn = false;
                 bool commentOpen = false;
@@ -58,10 +58,11 @@ namespace NDVakvs
                 Regex regex;
                 Match match;
                 int n = 0;
+                int indexFile = 0;
                 foreach (var filter in lParentFilters)
                 {
 
-                    int indexFile = 0;
+                    
                     foreach (var pathFile in filter)
                     {
                         bool includeHeader = false;
@@ -70,9 +71,11 @@ namespace NDVakvs
 
                         for (int i = 0; i < allLines.Count; i++)
                         {
+                            // Проверка на комментарии
                             regex = new Regex(parentCommentOpen);
                             match = regex.Match(allLines[i]);
-                            int indexCommentOpen = match.Index;
+                            int indexStarOpen = allLines[i].IndexOf('*');
+                            int indexMultiCommentOpen = match.Index;
                             if(match.Success)
                             {
                                 for(int j = i; j < allLines.Count; j++)
@@ -81,14 +84,25 @@ namespace NDVakvs
                                     match = regex.Match(allLines[j]);
                                     if (match.Success)
                                     {
-                                        int indexCommentClose = match.Index;
+                                        int indexStarClose = allLines[i].LastIndexOf('*');
+                                        int indexMultiCommentClose = match.Index;
                                         if (i != j)
                                         {
                                             i = j + 1;
                                             break;
                                         }
-                                        else if (indexCommentOpen != indexCommentClose)
-                                            continue;
+                                        else if (i == j)
+                                        {
+                                            if (indexMultiCommentOpen != indexMultiCommentClose)
+                                            {
+                                                if (indexStarOpen == indexStarClose)
+                                                {
+                                                    continue;
+                                                }
+                                                else break;  
+                                            }
+                                            else break;
+                                        }
                                         else break;
                                     }
                                     else continue;
@@ -177,7 +191,16 @@ namespace NDVakvs
                                                     regex = new Regex(paternBracesOpen);
                                                     match = regex.Match(allLines[r]);
                                                     if (!match.Success)
-                                                        str += allLines[r].Replace(" ", string.Empty);
+                                                    {
+                                                        if (!allLines[r].Contains(';'))
+                                                            //str += allLines[r].Replace(" ", string.Empty);
+                                                            str += allLines[r].TrimStart(' ');
+                                                        else
+                                                        {
+                                                            str = "";
+                                                            continue;
+                                                        }
+                                                    }  
                                                     else
                                                     {
                                                         j = r - 1;
@@ -192,7 +215,16 @@ namespace NDVakvs
                                                     regex = new Regex(paternBracesOpen);
                                                     match = regex.Match(allLines[r]);
                                                     if (!match.Success)
-                                                        str += allLines[r].Replace(" ", string.Empty);
+                                                    {
+                                                        if (!allLines[r].Contains(';'))
+                                                            //str += allLines[r].Replace(" ", string.Empty);
+                                                            str += allLines[r].TrimStart(' ');
+                                                        else
+                                                        {
+                                                            str = "";
+                                                            break;
+                                                        }
+                                                    }   
                                                     else
                                                     {
                                                         j = r - 1;
@@ -204,14 +236,19 @@ namespace NDVakvs
                                             i = j;
                                             break;
                                         }
-                                        lMarkerFunctions.Add(new MarkerFunction
+                                        if(!str.Equals(""))
                                         {
-                                            NumberFile = indexFile,
-                                            NumberFunction = indexFunc,
-                                            NameFunction = str,
-                                            NumberString = numberString,
-                                            NameFile = pathFile
-                                        });
+                                            lMarkerFunctions.Add(new MarkerFunction
+                                            {
+                                                NumberFile = indexFile,
+                                                NumberFunction = indexFunc,
+                                                NameFunction = str,
+                                                NumberString = numberString,
+                                                NameFile = pathFile
+                                            });
+                                        }
+                                        
+                                        Console.WriteLine(lMarkerFunctions.Count + "\t" + str);
                                     }
                                 }
                                 
@@ -223,7 +260,7 @@ namespace NDVakvs
                                     {
                                         includeHeader = true;
                                         flagCheckFunction = false;
-                                        allLines.Insert(i + 1, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','i')",indexFile,indexFunc));
+                                        allLines.Insert(i + 1, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','i');",indexFile,indexFunc));
                                         ++n;
                                     }
                                     else ++n;
@@ -249,7 +286,7 @@ namespace NDVakvs
                                         allLines.RemoveAt(i);
                                         allLines.Insert(i, new string('\t', n) + s);
                                         allLines.Insert(i + 1, new string('\t',n)+"{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1)+String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1)+String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n) + "}");
                                         allLines.Insert(i + 5, "");
@@ -267,7 +304,7 @@ namespace NDVakvs
                                         //allLines.Remove(allLines[i + 1]);
                                         allLines.RemoveAt(i + 1);
                                         allLines.Insert(i + 1, new string('\t',n)+"{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n) + "}");
                                         allLines.Insert(i + 5, "");
@@ -286,7 +323,7 @@ namespace NDVakvs
                                     match = regex.Match(allLines[i]);
                                     if (match.Success)
                                     {
-                                        allLines.Insert(i, new string('\t', n) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i, new string('\t', n) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         ++i;
                                         if (n == 1)
                                         {
@@ -315,7 +352,7 @@ namespace NDVakvs
                                         allLines.RemoveAt(i);
                                         allLines.Insert(i, new string('\t', n) + s);
                                         allLines.Insert(i + 1, new string('\t', n)+"{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n)+"}");
                                         allLines.Insert(i + 5, "");
@@ -333,7 +370,7 @@ namespace NDVakvs
                                         //allLines.Remove(allLines[i + 1]);
                                         allLines.RemoveAt(i + 1);
                                         allLines.Insert(i + 1, new string('\t', n) + "{");
-                                        allLines.Insert(i + 2, new string ('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string ('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n)+"}");
                                         allLines.Insert(i + 5, "");
@@ -375,7 +412,7 @@ namespace NDVakvs
                                         allLines.RemoveAt(i);
                                         allLines.Insert(i, new string('\t', n) + s);
                                         allLines.Insert(i + 1, new string('\t', n) +"{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n) + "}");
                                         allLines.Insert(i + 5, "");
@@ -393,7 +430,7 @@ namespace NDVakvs
                                         //allLines.Remove(allLines[i + 1]);
                                         allLines.RemoveAt(i + 1);
                                         allLines.Insert(i + 1, new string('\t', n) + "{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n) + "}");
                                         allLines.Insert(i + 5, "");
@@ -419,7 +456,7 @@ namespace NDVakvs
                                         allLines.RemoveAt(i);
                                         allLines.Insert(i, new string('\t', n) + s);
                                         allLines.Insert(i + 1, new string('\t', n) + "{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n) + "}");
                                         allLines.Insert(i + 5, "");
@@ -437,7 +474,7 @@ namespace NDVakvs
                                         //allLines.Remove(allLines[i + 1]);
                                         allLines.RemoveAt(i + 1);
                                         allLines.Insert(i + 1, new string('\t', n) + "{");
-                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i + 2, new string('\t', n + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         allLines.Insert(i + 3, new string('\t', n + 1) + sa);
                                         allLines.Insert(i + 4, new string('\t', n ) + "}");
                                         allLines.Insert(i + 5, "");
@@ -458,7 +495,7 @@ namespace NDVakvs
                                     else if (n == 0)
                                     {
                                         flagCheckFunction = true;
-                                        allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                                        allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
                                         ++indexFunc;
                                         ++i;
                                     }
