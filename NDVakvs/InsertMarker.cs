@@ -57,10 +57,15 @@ namespace NDVakvs
                 bool commentOpen = false;
                 bool functionFind = false;
                 bool flagCheck = true;
+                bool ifFind = false;
+                bool flagReturnIf = false;
+                bool checkSwitch = false;
 
                 Regex regex;
                 Match match;
                 int countOpenCloseBrace = 0;
+
+                int classStructNamespace = 0;
 
                 foreach (var filter in lParentFilters)
                 {
@@ -78,7 +83,9 @@ namespace NDVakvs
 
                             if (checkComment(allLines, ref i))
                                 continue;
-                            if (checkClass(allLines, ref i, ref countOpenCloseBrace))
+                            if (checkClass(allLines, ref i, ref countOpenCloseBrace, ref classStructNamespace))
+                                continue;
+                            if (checkEnum(allLines, ref i, ref classStructNamespace))
                                 continue;
                             if (checkQt(allLines, ref i))
                                 continue;
@@ -106,15 +113,18 @@ namespace NDVakvs
                                 //    ++countOpenCloseBrace;
                                 //if (checkBraceClose(allLines, i))
                                 //    --countOpenCloseBrace;
-                                insertMarkerBracesOpen(allLines, ref i, ref countOpenCloseBrace, ref indexFunc, ref flagCheck, ref includeHeader);
-                                insertMarkerIf(allLines, ref i, ref countOpenCloseBrace, ref indexFunc, ref flagEndReturn);
+                                
+                                insertMarkerIf(allLines, ref i, ref countOpenCloseBrace, ref indexFunc, ref flagEndReturn, ref ifFind, classStructNamespace);
                                 insertMarkerElse(allLines, ref i, ref countOpenCloseBrace, ref indexFunc);
                                 insertMarkerCase(allLines, ref i, ref countOpenCloseBrace, ref indexFunc);
                                 insertMarkerDefault(allLines, ref i, ref countOpenCloseBrace, ref indexFunc);
+                                findSwitch(allLines, ref i, ref checkSwitch);
+                                insertMarkerBracesOpen(allLines, ref i, ref countOpenCloseBrace, ref indexFunc, ref functionFind, ref includeHeader, ifFind);
                                 //functionFind = false;
                             }
 
-                            workBraceClose(allLines, ref i, ref countOpenCloseBrace, ref flagEndReturn, ref flagCheck, ref functionFind, ref indexFunc);
+                            workBraceClose(allLines, ref i, ref countOpenCloseBrace, ref flagEndReturn, ref flagCheck, 
+                                ref functionFind, ref indexFunc, ref ifFind, ref classStructNamespace, ref checkSwitch);
                             //regex = new Regex(paternBracesClose);
                             //match = regex.Match(allLines[i]);
                             //if (match.Success)
@@ -195,71 +205,64 @@ namespace NDVakvs
         }
 
 
-        private void workBraceClose(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref bool flagEndReturn, ref bool flagCheck, ref bool functionFind, ref int indexFunc)
+        private void workBraceClose(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref bool flagEndReturn, 
+            ref bool flagCheck, ref bool functionFind, ref int indexFunc, ref bool ifFind, ref int classStructNamespace, ref bool checkSwitch)
         {
             string paternBracesClose = "}";
             Regex regex = new Regex(paternBracesClose);
             Match match = regex.Match(allLines[i]);
             if (match.Success)
             {
-                --countOpenCloseBrace;
+
+                
 
                 if (flagEndReturn)
                 {
                     flagEndReturn = false;
-                    //flagCheckFunction = true;
-                    //functionFind = false;
+                    --countOpenCloseBrace;
+                    functionFind = false;
                 }
                 else if (countOpenCloseBrace == 0 & functionFind)
                 {
-                    functionFind = true;
+                    functionFind = false;
                     //flagCheckFunction = true;
                     allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
-                    ++indexFunc;
+                    //++indexFunc;
                     i += 1;
                 }
+                else if (!functionFind)
+                    --classStructNamespace;
+
                 if (countOpenCloseBrace == 0)
                 {
+                    //++indexFunc;
                     functionFind = false;
                     flagCheck = true;
+                }
+                if(functionFind & !ifFind & !checkSwitch)
+                {
+                    --countOpenCloseBrace;
+                    functionFind = false;
+                    flagCheck = true;
+                    allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                    i += 1;
+                }
+                
+
+                if (ifFind)
+                {
+                    ifFind = false;
+                    --countOpenCloseBrace;
+                }
+                
+                if (checkSwitch)
+                {
+                    checkSwitch = false;
+                    --countOpenCloseBrace;
                 }
                     
             }
         }
-
-        //private void checkBrace(List<string> allLines, int i, ref int countOpenCloseBrace, ref bool flagEndReturn, ref bool flagCheckFunction, ref bool functionFind, ref int indexFunc)
-        //{
-        //    string paternBracesOpen = "{";
-        //    string paternBracesClose = "}";
-        //    Regex regex = new Regex(paternBracesOpen);
-        //    Match match = regex.Match(allLines[i]);
-        //    if (match.Success)
-        //    {
-        //        ++countOpenCloseBrace;
-        //    }
-
-        //    regex = new Regex(paternBracesClose);
-        //    match = regex.Match(allLines[i]);
-        //    if (match.Success)
-        //    {
-        //        --countOpenCloseBrace;
-
-        //        if (flagEndReturn)
-        //        {
-        //            flagEndReturn = false;
-        //            flagCheckFunction = true;
-        //            functionFind = false;
-        //        }
-        //        else if (countOpenCloseBrace == 0 & functionFind)
-        //        {
-        //            functionFind = false;
-        //            flagCheckFunction = true;
-        //            allLines.Insert(i, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
-        //            ++indexFunc;
-        //            ++i;
-        //        }
-        //    }
-        //}
 
         private bool checkComment(List<string> allLines, ref int i)
         {
@@ -267,12 +270,14 @@ namespace NDVakvs
             string parentCommentClose = @"\*/";
             string parentHashTag = @"#";
             string parentCommentDoubleSlash = @"//";
+            string parentBackSlash = @"\\";
             bool flag = false;
 
             Regex regex = new Regex(parentCommentOpen);
             Match match = regex.Match(allLines[i]);
             int indexStarOpen = allLines[i].IndexOf('*');
             int indexMultiCommentOpen = match.Index;
+            int countAllLines = allLines.Count;
             if (match.Success)
             {
                 flag = true;
@@ -286,7 +291,7 @@ namespace NDVakvs
                         int indexMultiCommentClose = match.Index;
                         if (i != j)
                         {
-                            i = j + 1;
+                            i = j;
                             break;
                         }
                         else if (i == j)
@@ -301,49 +306,175 @@ namespace NDVakvs
                             }
                             else break;
                         }
-                        else break;
+                        //else break;
                     }
                     else continue;
                 }
-                --i;
+                //--i;
             }
             regex = new Regex(parentCommentDoubleSlash);
             match = regex.Match(allLines[i]);
             if (match.Success)
             {
-                flag = true;
-                //++i;
+                int indexDoubleSlash = match.Index;
+                string paternBracesClose = "}";
+                regex = new Regex(paternBracesClose);
+                match = regex.Match(allLines[i]);
+                if(match.Success)
+                {
+                    int indexBraceClose = match.Index;
+                    if(indexDoubleSlash < indexBraceClose)
+                    {
+                        flag = true;
+                        int countString = 1;
+                        for (int j = i + 1; j < allLines.Count; j++)
+                        {
+                            regex = new Regex(parentCommentDoubleSlash);
+                            match = regex.Match(allLines[j]);
+                            if (match.Success)
+                            {
+                                ++countString;
+                                continue;
+
+                            }
+                            else
+                            {
+                                i = j - 1;
+                                break;
+                            }
+                        }
+                        if (countAllLines == countString)
+                            i = countString - 1;
+                    }
+                }
+                
             }
             regex = new Regex(parentHashTag);
             match = regex.Match(allLines[i]);
             if (match.Success)
             {
                 flag = true;
-                for (int j = i + 1; j < allLines.Count; j++)
+                int countString = 1;
+
+                regex = new Regex(parentBackSlash);
+                match = regex.Match(allLines[i]);
+                if (match.Success)
                 {
-                    regex = new Regex(parentHashTag);
-                    match = regex.Match(allLines[j]);
-                    if (match.Success)
+                    for (int j = i + 1; j < allLines.Count; j++)
                     {
-                        continue;
-                    }
-                    else
-                    {
-                        i = j;
-                        break;
+                        regex = new Regex(parentBackSlash);
+                        match = regex.Match(allLines[j]);
+                        if (match.Success)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            //i = j;
+                            regex = new Regex(parentHashTag);
+                            match = regex.Match(allLines[j+1]);
+                            if (match.Success)
+                            {
+                                ++countString;
+                                continue;
+
+                            }
+                            else
+                            {
+
+                                i = j;
+                                break;
+                            }
+                        }
+
+                        
                     }
                 }
-                --i;
+                else
+                {
+                    for (int j = i + 1; j < allLines.Count; j++)
+                    {
+                        regex = new Regex(parentHashTag);
+                        match = regex.Match(allLines[j]);
+                        if (match.Success)
+                        {
+                            ++countString;
+                            continue;
+
+                        }
+                        else
+                        {
+
+                            i = j - 1;
+                            break;
+                        }
+                    }
+                }
+                if (countAllLines == countString)
+                    i = countString - 1;
+                //--i;
             }
 
             return flag;
         }
 
-        private bool checkClass(List<string> allLines, ref int i, ref int countOpenCloseBrace)
+        private bool checkEnum(List<string> allLines, ref int i, ref int classStructNamespace)
         {
             string paternBracesOpen = "{";
-            string parentStruct = "^struct";
-            string parentClass = "^class";
+            string paternBracesClose = "}";
+            string parentEnum = "(^enum)|(\tenum)|(\\s{0,}enum)|(^union)|(\tunion)|(\\s{0,}union)";
+            bool flag = false;
+
+            Regex regex = new Regex(parentEnum);
+            Match match = regex.Match(allLines[i]);
+            if (match.Success)
+            {
+                regex = new Regex(paternBracesOpen);
+                match = regex.Match(allLines[i]);
+                if (match.Success)
+                {
+                    ++classStructNamespace;
+                    regex = new Regex(paternBracesClose);
+                    match = regex.Match(allLines[i]);
+                    if (match.Success)
+                    {
+                        --classStructNamespace;
+                        flag = true;
+                    }
+                    else
+                    {
+                        for (int j = i + 1; j < allLines.Count; j++)
+                        {
+                            regex = new Regex(paternBracesClose);
+                            match = regex.Match(allLines[j]);
+                            if (!match.Success)
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                --classStructNamespace;
+                                i = j;
+                                flag = true;
+                                break;
+                            }
+                        }
+                    }
+
+                }
+                else flag = false;
+            }
+            else flag = false;
+
+            return flag;
+        }
+        
+
+        private bool checkClass(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref int classStructNamespace)
+        {
+            string paternBracesOpen = "{";
+            string parentStruct = "(^struct)|(\tstruct)|(\\s{0,}struct)";
+            string parentClass = "(^class)|(\tclass)|(\\s{0,}class)";
             string parentNamespace = "^namespace";
             bool flag = false;
 
@@ -351,25 +482,7 @@ namespace NDVakvs
             Match match = regex.Match(allLines[i]);
             if (match.Success)
             {
-                flag = true;
-                for (int j = i; j < allLines.Count; j++)
-                {
-                    regex = new Regex(paternBracesOpen);
-                    match = regex.Match(allLines[j]);
-                    if (match.Success)
-                    {
-                        i = j-1;
-                        ++countOpenCloseBrace;
-                        break;
-                    }
-                    else continue;
-                }
-            }
-            regex = new Regex(parentClass);
-            match = regex.Match(allLines[i]);
-            if (match.Success)
-            {
-                
+                //++classStructNamespace;
                 flag = true;
                 for (int j = i; j < allLines.Count; j++)
                 {
@@ -380,8 +493,49 @@ namespace NDVakvs
                     match = regex.Match(allLines[j]);
                     if (match.Success)
                     {
-                        i = j-1;
-                        ++countOpenCloseBrace;
+                        if(i == j)
+                        {
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
+                        else
+                        {
+                            i = j - 1;
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
+                        
+                        break;
+                    }
+                    else continue;
+                }
+            }
+            regex = new Regex(parentClass);
+            match = regex.Match(allLines[i]);
+            if (match.Success)
+            {
+                //++classStructNamespace;
+                flag = true;
+                for (int j = i; j < allLines.Count; j++)
+                {
+                    if (allLines[j].Contains(";"))
+                        break;
+
+                    regex = new Regex(paternBracesOpen);
+                    match = regex.Match(allLines[j]);
+                    if (match.Success)
+                    {
+                        if (i == j)
+                        {
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
+                        else
+                        {
+                            i = j - 1;
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
                         break;
                     }
                     else continue;
@@ -391,15 +545,28 @@ namespace NDVakvs
             match = regex.Match(allLines[i]);
             if (match.Success)
             {
+                //++classStructNamespace;
                 flag = true;
                 for (int j = i; j < allLines.Count; j++)
                 {
+                    if (allLines[j].Contains(";"))
+                        break;
+
                     regex = new Regex(paternBracesOpen);
                     match = regex.Match(allLines[j]);
                     if (match.Success)
                     {
-                        i = j-1;
-                        ++countOpenCloseBrace;
+                        if (i == j)
+                        {
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
+                        else
+                        {
+                            i = j - 1;
+                            ++classStructNamespace;
+                            //++countOpenCloseBrace;
+                        }
                         break;
                     }
                     else continue;
@@ -417,9 +584,25 @@ namespace NDVakvs
 
             Regex regex = new Regex(parentQ);
             Match match = regex.Match(allLines[i]);
+            
             if (match.Success)
             {
-                flag = true;
+                int indexQ = match.Index;
+                string parenthesesOpen = @"\(";
+
+                regex = new Regex(parenthesesOpen);
+                match = regex.Match(allLines[i]);                
+                if (match.Success)
+                {
+                    int indexParenthesesOpen = match.Index;
+                    if (indexQ < indexParenthesesOpen)
+                    {
+                        flag = true;
+                    }
+                    else flag = false;
+                }
+
+                //flag = true;
                 //++i;
             }
             else
@@ -446,7 +629,7 @@ namespace NDVakvs
 
         private bool checkSpace(List<string> allLines, ref int i)
         {
-            if (allLines[i].Equals(""))
+            if (allLines[i].Equals("")| allLines[i].Equals(" "))
                 return true;
             else return false;
         }
@@ -475,6 +658,7 @@ namespace NDVakvs
             string paternBracesOpen = "{";
             string paternBracesClose = "}";
             string parenthesesOpen = @"\(";
+            string paternReturn = "return";
 
             Regex regex = new Regex(parenthesesOpen);
             Match match = regex.Match(allLines[i]);
@@ -496,41 +680,96 @@ namespace NDVakvs
                         }                          
                         else
                         {
+                            functionFind = false;
                             str = "";
                             break;
                         }
                     }
                     else // Если нет )
                     {
+                        ++indexFunc;
                         regex = new Regex(paternBracesClose);
                         match = regex.Match(allLines[j]);
                         if (match.Success)
                         {
-                            //int indexBraceClose = match.Index;
-                            string[] temp = allLines[j].Split(new char[] { '{' });
-                            allLines.RemoveAt(j);
+                            
+                            bool checkReturn = false;
+                            
+                            regex = new Regex(paternReturn);
+                            match = regex.Match(allLines[j]);
 
-                            allLines.Insert(j, new string('\t', countOpenCloseBrace) + temp[0].TrimStart(' '));
-                            allLines.Insert(j + 1, new string('\t', countOpenCloseBrace) + "{");
-                            allLines.Insert(j + 2, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','i');", indexFile, indexFunc));
-                            allLines.Insert(j + 3, new string('\t', countOpenCloseBrace + 1) + temp[1].TrimEnd('}'));
-                            allLines.Insert(j + 4, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
-                            allLines.Insert(j + 5, new string('\t', countOpenCloseBrace) + "}");
-                            allLines.Insert(j + 6, "");
-                            j += 7;
+                            string[] temp = allLines[j].Split(new char[] { '{', ';' });
+                            allLines.RemoveAt(j);
+                            if (match.Success)
+                            {
+                                
+                                allLines.Insert(j, new string('\t', countOpenCloseBrace) + temp[0].TrimStart(' '));
+                                allLines.Insert(j += 1, new string('\t', countOpenCloseBrace) + "{");
+                                allLines.Insert(j += 1, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','i');", indexFile, indexFunc));
+                                for(int f = 1; f < temp.Length; f++)
+                                {
+                                    regex = new Regex(paternReturn);
+                                    match = regex.Match(temp[f]);
+                                    if (!match.Success)
+                                    {
+                                        allLines.Insert(j += 1 , new string('\t', countOpenCloseBrace) + temp[f].TrimStart(' ') + ";");
+                                    }
+                                    else
+                                    {
+                                        allLines.Insert(j += 1, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                                        allLines.Insert(j += 1, new string('\t', countOpenCloseBrace) + temp[f].TrimStart(' ') + ";");
+                                        checkReturn = true;
+                                        break;
+                                    }
+                                }
+                                if(!checkReturn)
+                                    allLines.Insert(j += 1, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                                allLines.Insert(j += 1, new string('\t', countOpenCloseBrace) + "}");
+                                allLines.Insert(j += 1, "");
+                                j += 1;
+                                str = temp[0].TrimStart(' ');
+                                functionFind = false;
+                                //--indexFunc;
+
+                            }
+                            else
+                            {
+                                
+                                allLines.Insert(j, new string('\t', countOpenCloseBrace) + temp[0].TrimStart(' '));
+                                allLines.Insert(j + 1, new string('\t', countOpenCloseBrace) + "{");
+                                allLines.Insert(j + 2, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','i');", indexFile, indexFunc));
+                                allLines.Insert(j + 3, new string('\t', countOpenCloseBrace) + temp[1].TrimStart('}'));
+                                allLines.Insert(j + 4, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                                allLines.Insert(j + 5, new string('\t', countOpenCloseBrace) + "}");
+                                allLines.Insert(j + 6, "");
+                                j += 7;
+                                str = temp[0].TrimStart(' ');
+                                functionFind = false;
+                                //--indexFunc;
+                            }
+                            
+                        }
+                        else
+                        {
+                            //++indexFunc;
+                            string[] temp = allLines[j].Split(new char[] { '{' });
                             str = temp[0].TrimStart(' ');
-                            functionFind = false;
+                            flagCheck = false;
+                            functionFind = true;
+                            //--indexFunc;
                         }
 
                         
                         i = j - 1;
                         break;
                     }
+                    
                 }
+               
                 if (!str.Equals(""))
                 {
-                    
-                    flagCheck = false;
+                    //++indexFunc;
+                    //flagCheck = false;
                     lMarkerFunctions.Add(new MarkerFunction
                     {
                         NumberFile = indexFile,
@@ -545,7 +784,7 @@ namespace NDVakvs
             }
         }
 
-        private void insertMarkerBracesOpen(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref int indexFunc, ref bool flagCheckFunction, ref bool includeHeader)
+        private void insertMarkerBracesOpen(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref int indexFunc, ref bool functionFind, ref bool includeHeader, bool ifFind)
         {
             string paternBracesOpen = "{";
 
@@ -553,38 +792,53 @@ namespace NDVakvs
             Match match = regex.Match(allLines[i]);
             if (match.Success)
             {
+                //if (functionFind)
+                //    ++indexFunc;
+
                 if (countOpenCloseBrace == 0)
                 {
+                    //++indexFunc;
                     includeHeader = true;
-                    flagCheckFunction = false;
+                    //flagCheckFunction = false;
                     allLines.Insert(i + 1, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','i');", indexFile, indexFunc));
                     ++countOpenCloseBrace;
                     ++i;
                 }
+                
+                //else if (functionFind & !ifFind)
+                //{
+                //    includeHeader = true;
+                //    //flagCheckFunction = false;
+                //    allLines.Insert(i + 1, String.Format("\t_akvs_probe(\"{0}:{1}\",'f','i');", indexFile, indexFunc));
+                //    ++countOpenCloseBrace;
+                //    ++i;
+                //}
                 else ++countOpenCloseBrace;
-
+                
 
             }
         }
 
          
 
-        private void insertMarkerIf(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref int indexFunc, ref bool flagEndReturn)
+        private void insertMarkerIf(List<string> allLines, ref int i, ref int countOpenCloseBrace, ref int indexFunc, ref bool flagEndReturn, ref bool ifFind, int classStructNamespace)
         {
             string paternIf = @"if\s";
             string paternReturn = "return";
-            //string paternBracesOpen = "{";
+            string paternBracesOpen = "{";
 
             Regex regex = new Regex(paternIf);
             Match match = regex.Match(allLines[i]);
             if (match.Success)
             {
+                ifFind = true;
                 int indexStartIf = match.Index;
                 int indexEnd = allLines[i].LastIndexOf(")");
                 regex = new Regex(paternReturn);
                 match = regex.Match(allLines[i]);
                 if (match.Success)
                 {
+
                     int indexStartReturn = match.Index;
                     int indexEnd1 = allLines[i].IndexOf(";");
                     string s = allLines[i].Substring(indexStartIf, indexEnd - indexStartIf + 1);
@@ -600,29 +854,49 @@ namespace NDVakvs
                     i += 5;
 
                 }
-
-                regex = new Regex(paternReturn);
-                match = regex.Match(allLines[i + 1]);
-                if (match.Success)
+                else
                 {
-                    int indexStartReturn = match.Index;
-                    int indexEnd1 = allLines[i + 1].IndexOf(";");
-                    string sa = allLines[i + 1].Substring(indexStartReturn, indexEnd1 - indexStartReturn + 1);
-                    //allLines.Remove(allLines[i + 1]);
-                    allLines.RemoveAt(i + 1);
-                    allLines.Insert(i + 1, new string('\t', countOpenCloseBrace) + "{");
-                    allLines.Insert(i + 2, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
-                    allLines.Insert(i + 3, new string('\t', countOpenCloseBrace + 1) + sa);
-                    allLines.Insert(i + 4, new string('\t', countOpenCloseBrace) + "}");
-                    allLines.Insert(i + 5, "");
-                    //allLines.RemoveAt(i + 1);
-                    //allLines.Insert(i + 1, "\t{");
-                    //allLines.Insert(i + 2, String.Format("\t\t_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
-                    //allLines.Insert(i + 3, "\t\t" + sa);
-                    //allLines.Insert(i + 4, "\t}");
-                    //allLines.Insert(i + 5, "");
-                    i += 5;
+                    regex = new Regex(paternBracesOpen);
+                    match = regex.Match(allLines[i]);
+                    if(match.Success)
+                    {
+                        ifFind = true;
+                    }
+                    else
+                    {
+                        regex = new Regex(paternBracesOpen);
+                        match = regex.Match(allLines[i + 1]);
+                        if (match.Success)
+                        {
+                            ifFind = true;
+                        }
+                        else ifFind = false;
+                    }
+                    
                 }
+
+                //regex = new Regex(paternReturn);
+                //match = regex.Match(allLines[i + 1]);
+                //if (match.Success)
+                //{
+                //    int indexStartReturn = match.Index;
+                //    int indexEnd1 = allLines[i + 1].IndexOf(";");
+                //    string sa = allLines[i + 1].Substring(indexStartReturn, indexEnd1 - indexStartReturn + 1);
+                //    //allLines.Remove(allLines[i + 1]);
+                //    allLines.RemoveAt(i + 1);
+                //    allLines.Insert(i + 1, new string('\t', countOpenCloseBrace) + "{");
+                //    allLines.Insert(i + 2, new string('\t', countOpenCloseBrace + 1) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                //    allLines.Insert(i + 3, new string('\t', countOpenCloseBrace + 1) + sa);
+                //    allLines.Insert(i + 4, new string('\t', countOpenCloseBrace) + "}");
+                //    allLines.Insert(i + 5, "");
+                //    //allLines.RemoveAt(i + 1);
+                //    //allLines.Insert(i + 1, "\t{");
+                //    //allLines.Insert(i + 2, String.Format("\t\t_akvs_probe(\"{0}:{1}\",'f','o')", indexFile, indexFunc));
+                //    //allLines.Insert(i + 3, "\t\t" + sa);
+                //    //allLines.Insert(i + 4, "\t}");
+                //    //allLines.Insert(i + 5, "");
+                //    i += 5;
+                //}
 
                 //regex = new Regex(paternBracesOpen);
                 //match = regex.Match(allLines[i]);
@@ -639,6 +913,7 @@ namespace NDVakvs
                         match = regex.Match(allLines[j]);
                         if (match.Success)
                         {
+                           
                             int indexStartReturn = match.Index;
                             int indexEnd1 = allLines[j].IndexOf(";");
                             string sa = allLines[j].Substring(indexStartReturn, indexEnd1 - indexStartReturn + 1);
@@ -653,6 +928,7 @@ namespace NDVakvs
                         }
                         else
                         {
+                            //ifFind = true;
                             break;
                         }
                     }
@@ -665,15 +941,23 @@ namespace NDVakvs
             {
                 regex = new Regex(paternReturn);
                 match = regex.Match(allLines[i]);
+           
                 if (match.Success)
                 {
-                    allLines.Insert(i, new string('\t', countOpenCloseBrace) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
-                    ++i;
-                    if (countOpenCloseBrace == 1)
+                    int n = allLines[i].Count(x => x.Equals('\"'));
+                    if(n != 2)
                     {
-                        flagEndReturn = true;
-                        ++indexFunc;
+                        allLines.Insert(i, new string('\t', countOpenCloseBrace) + String.Format("_akvs_probe(\"{0}:{1}\",'f','o');", indexFile, indexFunc));
+                        ++i;
+                        if (countOpenCloseBrace == 1)
+                        {
+                            flagEndReturn = true;
+                            //++indexFunc;
+                        }
+                        else if (classStructNamespace >= 1)
+                            flagEndReturn = true;
                     }
+                    
 
                 }
             }
@@ -731,6 +1015,17 @@ namespace NDVakvs
                 //{
                 //    ++countOpenCloseBrace;
                 //}
+            }
+        }
+
+        private void findSwitch(List<string> allLines, ref int i, ref bool checkSwitch)
+        {
+            string parentSwitch = "switch";
+            Regex regex = new Regex(parentSwitch);
+            Match match = regex.Match(allLines[i]);
+            if (match.Success)
+            {
+                checkSwitch = true;
             }
         }
 
